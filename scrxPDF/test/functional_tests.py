@@ -21,8 +21,13 @@ class NewVisitorTest(unittest.TestCase):
         path_pdf= os_path.join(
             os_path.dirname(__file__), 'input_files\*PROD [GASOIL][GASOIL][GASOIL].pdf')
         # this dir must include pdftotext.exe:
+
         argv[0] = os_path.join(os_path.dirname(os_path.dirname(__file__)), 'scrxPDF')
-        argv[1:] = ['--path', path_pdf]
+        argv[1:] = ['-h']
+        scrxPDF()
+
+        argv[0] = os_path.join(os_path.dirname(os_path.dirname(__file__)), 'scrxPDF')
+        argv[1:] = ['--path', path_pdf, ]
         scrxPDF()
         # It finds 30 files and parse them. Result saved to
         #D:\Work\_Python3\And0K\scraper3\12200_PROD GAS+.csv.csv

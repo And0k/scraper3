@@ -7,22 +7,21 @@
 """
 import logging
 import re
-# outfp = StringIO()
-# from collections import deque
-from csv import DictWriter as csv_DictWriter  # csvfile,
 
 from os import path as os_path, environ as os_environ
+from sys import argv as sys_argv, exit, path
 from subprocess import Popen, PIPE, STDOUT
-from sys import argv as sys_argv
+from csv import DictWriter as csv_DictWriter  # csvfile,
 from operator import itemgetter
 
-from dateutil import parser as dateutil_parser
+path.append(r'../..') #this is need to next import work:
 from h5toGrid.utils2init import init_logging
+from h5toGrid.utils2init import ini2dict, init_file_names, name_output_file, \
+    Ex_nothing_done, set_cfg_path_filemask
 
 l  = None  # global logging
 cfg= None
 
-# import numpy as np
 try:
     from setuptools_scm import get_version
 
@@ -32,6 +31,7 @@ except:  # LookupError
 
 class Task(object):
     def __init__(self, task, pdfF= None):
+        self.name = ''
         def gen_next(task):
             """
 
@@ -42,18 +42,19 @@ class Task(object):
 
             # number of not empty rows which need to skip till reach row of current task
             self.rows_skip = 0
+            task_list_name = get_field_of_branch(task)
             while True:
                 try:
 
-                    for t in cfg['input_files'][get_field_of_branch(task)]:
-                        if t=='': # may be rows which need to skip
+                    for task in cfg['input_files'][task_list_name]:
+                        if task=='': # may be rows which need to skip
                             self.rows_skip += 1
                             continue
-                        self.name = t
-                        self.re = cfg['input_files']['re_' + t]
-                        yield t
+                        self.name = task
+                        self.re = cfg['input_files']['re_' + task]
+                        yield task
                         self.rows_skip = 0
-                    task = get_field_of_branch(t)
+                    task_list_name = get_field_of_branch(task) # swith to next list
                 except KeyError as e:
                     return None  # end of useful data in file
 
@@ -88,7 +89,7 @@ class Task(object):
                             proc.wait()
                             break
 
-                        line_next = line_next.strip('\r\n ')
+                        line_next = line_next.strip('\r\n') #keep leading spaces
                         if not line_next:
                             continue
 
@@ -132,10 +133,11 @@ class Task(object):
                             continue
                         b_after_bad_line = True
                         # may be inserted bad line: try line_next, but warn
-                        l.warning('Task"{:<10}": Error find in line "{}"'.format(self.name, self.line))
+
                         # try skip line (use line_next)
                         out = self.re.match(self.line_next)
-                        if out and all([out[k] is not None for k in self.re.groupindex.keys()]):
+                        if out and all([out.group(k) is not None for k in self.re.groupindex.keys()]):
+                            l.warning('Task"{:<10}": Skipped bad line "{}"'.format(self.name, self.line))
                             b_after_bad_line= False
                             try:
                                 self.line, self.line_next = self.ge_source_lines.__next__()
@@ -143,6 +145,8 @@ class Task(object):
                                 return None
                             yield out.groupdict()
                             continue
+                        else:
+                            l.warning('Task"{:<10}": Error find in line "{}" and next line "{}"'.format(self.name, self.line, self.line_next))
 
                         continue
                         #               l.warning('Task"{:<10}": nothing in "{}"'.format(self.name, self.line_next))
@@ -157,11 +161,29 @@ class Task(object):
             self.ge_source_lines = lambda : (None, None) #dummy
             self.parse= lambda : None #dummy
 
-
-
     def get_prefix_of_branch(self, task):
+        """
+        Sets type of task self.b_try_next_if_ok and returns string:
+        task01_: try_next_if_ok
+        task10_: try_same_if_ok i.e. self.b_try_next_if_ok= False
+        :param task: <Name> of task with branch i.e. cfg['input_files']['taskXX_<Name>']
+         must be exist
+        :return:
+        """
         self.b_try_next_if_ok = ('task01_' + task) in cfg['input_files']
         return 'task01_' if self.b_try_next_if_ok else 'task10_'
+
+'''
+ro_more1spaces_or_dashspaces= re.compile('(((?<=-)|(?<= )) +)|( +(?=-))')
+ro_hash_if_numbers= re.compile('#')
+
+def prettify_str(d, d_field, ro_pattern= ro_more1spaces_or_dashspaces, repl_to= ''):
+    #ro_pattern pattern, default - more2spaces_or_dashspaces
+    # Modifies d['d_field']
+    d[d_field]= ro_pattern.sub(repl_to, d[d_field])
+    #d.update({d_field: ro_more1spaces.sub(repl_of_more1spaces, d[d_field])})
+'''
+
 
 def proc_data(pdfF, csv_dict_writer, fn=None, *args):
     """
@@ -172,49 +194,57 @@ def proc_data(pdfF, csv_dict_writer, fn=None, *args):
     :param args:
     :return:
     """
-
-    # task order ini
+    # new task class
     taskRe = Task(cfg['input_files']['task_first'], pdfF)
 
-    # Get data:
-    data = {'File': pdfF}
-    for task in taskRe.gen_name:
-        # Collect common fields (which will not overwites)
-        if taskRe.b_try_next_if_ok:
-            data.update(taskRe.parse.__next__())
-        else:
-            break
+    def relace_hashes_in_dict_if_w_digits(d):
+        """
+        Removes hashes from dict fields which have both hash and digits
+        :param d: dict
+        :return: nothing
+        """
+        for k, v in d.items():
+            if '#' in v and re.search('\d', v):
+                d[k] = v.replace('#', '')
 
-    if not data:
-        # No data found
-        l.warning('Nothing in file before table. Last line: "{}"'.format(taskRe.line))
-        return
+    def save(dict_data, dict_new= {}, task= taskRe.name):
+        if not dict_data:
+            # No data found
+            l.warning('Nothing in file before table. Last line: "{}"'.format(taskRe.line))
+            return
 
-    if 'nodata' in data:
-        del data['nodata'] # remove headers
-    assert 'Quad' in data
-    for dict_from_row_of_table in taskRe.parse:
-    # dict_from_row_of_table= True
-    # while :
-    #     # For each line in table
-    #     dict_from_row_of_table = .__next__()
-        if not dict_from_row_of_table:
-            break
-        data.update(dict_from_row_of_table)
-
+        relace_hashes_in_dict_if_w_digits(dict_new)
+        dict_data.update(dict_new)
         try:
-            csv_dict_writer.writerow(data)
+            csv_dict_writer.writerow(dict_data)
             l.debug('Task"{:<10}": "{}" data saved'.format(task, taskRe.line))
         except Exception as e:
             l.warning('Task"{:<10}": Error save line "{}": {}'.format(
-                task, taskRe.line, '\n==> '.join([ a for a in e.args if isinstance(a, str)])))
-    return data  # includes only last last table row
+                task, taskRe.line, '\n==> '.join([a for a in e.args if isinstance(a, str)])))
+
+    # Get data:
+    data = {'<File>': pdfF} if '<File>' in cfg['output_files']['header'] else {}
+    # Cycle by task name
+    for task in taskRe.gen_name: # Collect common fields (which will not overwites)
+        if taskRe.b_try_next_if_ok:
+            new_data = taskRe.parse.__next__()
+            data.update(new_data)
+        else:
+            if 'nodata' in data:
+                del data['nodata']  # remove headers
+            assert 'Quad' in data
+            save(data, new_data)
+            for new_data in taskRe.parse: # Cycle by row (each row have same fields)
+                if new_data:
+                    #data.update(new_data)
+                    save(data, new_data)
+                else:
+                    l.debug('Task"{:<10}": "{}" data saved'.format(task, taskRe.line))
+
+    return data  # data includes only last last table row
 
 ################################################################################
 ################################################################################
-from h5toGrid.utils2init import ini2dict, init_file_names, name_output_file, \
-    Ex_nothing_done, set_cfg_path_filemask, getDirBaseOut, dir_create_if_need, set_field_if_no
-
 
 
 def parse_cfg():
@@ -223,51 +253,50 @@ def parse_cfg():
     #p = configargparse.get_argument_parser(
     p = configargparse.ArgumentParser(
         default_config_files=['scrxPDF1707.ini'], #../
-        description='Convert *.pdf to *.csv',
+        description="---------------------------------\n"
+                    "Extract *.pdf text data to *.csv.\n"
+                    "---------------------------------\n",
         formatter_class= configargparse.ArgumentDefaultsRawHelpFormatter,
         # formatter_class= configargparse.ArgumentDefaultsHelpFormatter,
-        epilog='If use special characters then insert arguments in quotes',
-        version=r'''scrxPDF1707 version 0.0.1 - (c) 2017 Andrey Korzh <ao.korzh@gmail.com>.
-
-Program uses the GPL Xpdf software copyrighted 1996-2014 Glyph & Cog, LLC.
-(Email: derekn@foolabs.com, WWW: http://www.foolabs.com/xpdf/)''',
+        epilog='If use special characters in path arguments then insert them in quotes',
+        version='scrxPDF1707 version ' + version + ' - (c) 2017 Andrey Korzh <ao.korzh@gmail.com>.\n\nProgram uses the GPL Xpdf software copyrighted 1996-2014 Glyph & Cog, LLC.\n(Email: derekn@foolabs.com, WWW: http://www.foolabs.com/xpdf/)',
         args_for_writing_out_config_file=["-w", "--write-out-config-file"])
+
     # Fill configuration sections
-    # Most argumets of type str (default for add_argument...), because of
+    # All argumets of type str (default for add_argument...), because of
     # custom postprocessing based of args names in ini2dict
-    p_input_files= p.add_argument_group('input_files', 'Parameters of input files')
+    p_input_files = p.add_argument_group('input_files', 'Parameters of input files')
     p_input_files.add_argument(
         '--path', nargs='?', default='.',
-        help='Path to pdf or dir with pdf files to parse. Use patterns in Unix shell style')
+        help='Path to pdf file or dir with pdf files to parse. Use patterns in Unix shell style')
     p_input_files.add_argument(
         '--b_search_in_subdirs', default='True', help= 'search in subdirectories')
 
-    p_input_files.add_argument(
-        '--emptyfield',
-        default='Unassigned Field', help= 'unassigned field value')
-    p_input_files.add_argument(
-        '--unknownfield',
-        default='######', help= 'field wich value can not be determined')
+    # p_input_files.add_argument(
+    #     '--emptyfield',
+    #     default='Unassigned Field', help= 'unassigned field value')
+    # p_input_files.add_argument(
+    #     '--unknownfield',
+    #     default='######', help= 'field wich value can not be determined')
 
     # Task order
     p_input_files.add_argument(
         '--task_first', default='County_Quad_Pool',
-        help='name of first regular expression to check in file')
+        help='Name of first task.\nEach task shoud be listed in task list "task01_<Name>" or "task10_<Name>" and have regular expression "re_<Name>" (see below)')
     p_input_files.add_argument(
         '--task01_County_Quad_Pool_list', # nargs='+' for list of lists
         default='County_Quad_Pool, Buyer_Lease_Type_Active, , Permit_Well_header, '
                  'Permit_Well, , Product_by_month_header, Product_by_month',
-        help='''
-"Try next if ok" list: if parced: then switch to next rule else: try next line while not parsed
-''')
+        help='"Try next if ok" list of tasks (rows to parse). if parsed: then switch to next rule '
+             'else: try next line while not parsed. Empty items is for skip lines without warnings')
     p_input_files.add_argument(
         '--task10_Product_by_month_list',
-        default='Product_by_month',
+        default='Product_by_month, None',
         help='''
 "Try again if ok" list - useful for tables with regular structure
-if parced: keep rule.
+if parsed: keep rule.
 else: go next line and if not parsed then swich rule and try it.
-if no next rule: end of document
+Last item in task list must be "None" which means end of document parsing 
         ''')
 
     # Regular expressions for each task
@@ -275,30 +304,38 @@ if no next rule: end of document
         '--re_County_Quad_Pool',
         default=" *(?P<County>.*?)(?: *County;) +(?P<Quad>.*?)(?: *Quad;)"
         " +(?P<Pool>.*?)(?: +Field +Pool.*)$",
-        help= 'regular expression with named fields'
-    'get last field even it has no last identification suffix')
+        help= 'regular expression with named fields')
     p_input_files.add_argument(
         '--re_Buyer_Lease_Type_Active',
-        default="(?:Buyer: +)(?P<Buyer>.*?)(?:,? *(Buyer's|) *Lease#: +)(?P<Lease>.*?)"
+        default=" *(?:Buyer: +)(?P<Buyer>.*?)(?:,? *(Buyer's|) *Lease#: +)(?P<Lease>.*?)"
                 "(?: *Production +Type +)(?P<Type>[^ ]*?)(?: *Production +Unit.*| .*|$)")
     #Wells In Production Uni
     p_input_files.add_argument(
         '--re_Permit_Well_header',
-        default="(?P<nodata>Permit +#? +Well +Name)",
+        default=" *(?P<nodata>Permit +#? +Well +Name)",
         help="It checks but not saves <nodata> fields")
     p_input_files.add_argument(
         '--re_Permit_Well',
-        default="((?P<Permit>[^ ]{1,10})| )((?: +(?P<Well>.*))|$)")
+        default="((?P<Permit>[^ ]{1,10})| {8})((?: +(?P<Well>.*))|$)")
     p_input_files.add_argument(
         '--re_Product_by_month_header',
         default="(?P<nodata> *Year +Jan +Feb +Mar +Apr +May +Jun +Jul +Aug +Sep +Oct +Nov +Dec +Totals)")
     p_input_files.add_argument(
         '--re_Product_by_month',
-        default=" *(?P<Year>\d{2,4}|Totals) +(?P<Jan>[\d.#]{1,10}) +(?P<Feb>[\d.#]{1,10})"
-        " +(?P<Mar>[\d.#]{1,10}) +(?P<Apr>[\d.#]{1,10}) +(?P<May>[\d.#]{1,10})"
-        " +(?P<Jun>[\d.#]{1,10}) +(?P<Jul>[\d.#]{1,10}) +(?P<Aug>[\d.#]{1,10})"
-        " +(?P<Sep>[\d.#]{1,10}) +(?P<Oct>[\d.#]{1,10}) +(?P<Nov>[\d.#]{1,10})"
-        " +(?P<Dec>[\d.#]{1,10}) +(?P<Totals>[\d.#]{1,10})")
+        default=" *(?P<Year>[\d.#]{2,4}[\d.#]|Totals)(?: {1,13}|)"
+        "(?P<Jan>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Feb>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Mar>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Apr>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<May>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Jun>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Jul>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Aug>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Sep>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Oct>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Nov>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Dec>[\d.#]{1,8})(?: {1,13}|)"
+        "(?P<Totals>[\d.#]{1,10})$")
 
     p_output_files= p.add_argument_group('output_files', 'Parameters of output files')
     p_output_files.add_argument(
@@ -310,14 +347,16 @@ with last directory name.
 Else, if no extension provided then ".csv" will be used, "<filename>" strings
 will be sabstituted with correspondng input file names.
 ''')  # .csv
-    re_items= re.compile(p_input_files._option_string_actions['--re_Product_by_month'].default).groupindex
-    task10_keys= [k for k,v in sorted(re_items.items(), key=itemgetter(1))]
     p_output_files.add_argument(
         '--header_list', default= 'Buyer,Pool,Permit,Well,Quad,County,Type,Lease,'
-                                  + ','.join(task10_keys)+ ',File',  # Total,Active
-        help= 'Columns order. Names must be taken from regex defined in [input_files].'
-              'task01_* lists. Names from [input_files].[re_Product_by_month] list added automatically.'
-              'File field added automatically')
+        '<Product_by_month>,<File>',  # Total,Active
+        help= '''
+Columns order. List of comma separated
+1) named regex fields i.e. (?P<...>) elements of [input_files].re_* lists or/and 
+2) from this list names without "re_" enclosed in angle brackets: elements from 
+them will be added automatically.'
+3) <File> field: to include name of parsed file
+''')
     p_output_files.add_argument(
         '--min_size_to_overwrite', default= 0)
     p_program= p.add_argument_group('program', 'Program behaviour')
@@ -398,7 +437,7 @@ def cycle_files(fun_on_files= None):
 
     # Process and write data
         for n, nameFull in enumerate(cfg['input_files']['namesFull'], start=1):
-            nameFE = os_path.split(nameFull)[0]
+            nameFE = os_path.split(nameFull)[1]
             str_print = ' {n:3d}. File "{f}"'.format(n=n, f=nameFE)
             print('\n' + str_print, end='')
             l.info(str_print)
@@ -423,6 +462,24 @@ def cycle_files(fun_on_files= None):
             logging.shutdown()
         except:
             pass
+
+
+def gen_traverse_tasks(task, prefix_of_replaced_field):
+    """
+    Generator to traverse tasks.
+    Same as Task.gen_next but not doing any other actions
+    :param task:
+    :return:
+    """
+    get_task_list_name = lambda t: prefix_of_replaced_field(t) + t
+    while True:
+        try:
+            for task in cfg['input_files'][get_task_list_name(task)]:
+                if task=='None':
+                    return
+                yield task
+        except KeyError as e:
+            return  # end of useful data in file
 
 def correct_lowered_fields_of_cfg(cfg):
     '''
@@ -458,35 +515,23 @@ def correct_lowered_fields_of_cfg(cfg):
         del cfg['input_files'][field_low]
         return prefix
 
-    def gen_traverse_tasks(task):
-        """
-        Generator to traverse tasks.
-        Same as Task.gen_next but not doing any other actions
-        :param task:
-        :return:
-        """
-        get_field_of_branch = lambda t: prefix_of_replaced_field(t) + t
-        while True:
-            try:
-                for t in cfg['input_files'][get_field_of_branch(task)]:
-                    yield t
-                task = get_field_of_branch(t)
-            except KeyError as e:
-                return  # end of useful data in file
 
     #task_gen_traverse = gen_traverse_tasks(cfg['input_files']['task_first'])
 
     # Correct lower case fields of cfg['input_files']: 'task??_*' and 're_*'
-    for t in gen_traverse_tasks(cfg['input_files']['task_first']):
+
+    for t in gen_traverse_tasks(cfg['input_files']['task_first'], prefix_of_replaced_field):
         t_low=t.lower()
         if t!=t_low:
             field_low = 're_' + t_low
+            if not field_low in cfg['input_files'] and ('re_' + t) in cfg['input_files']:
+                continue # It is all right with the field already
             try:
                 cfg['input_files']['re_' + t]= cfg['input_files'][field_low]
                 del cfg['input_files'][field_low]
             except Exception as e:
                 raise ValueError(
-                'Bad [input_files] configuration: no "re_" field corresponded to {}'
+                'Bad [input_files] configuration: no "re_" field corresponded to {} '
                 'listed in [input_files].task01_County_Quad_Pool'.format(t))
     return cfg
 #if __name__ == '__main__':  #####################################################
@@ -496,7 +541,25 @@ def main():
     cfg = parse_cfg()
     cfg = correct_lowered_fields_of_cfg(cfg)
 
-    # More configuration (fixed: no access to change by user)
+    # More configuration
+    ###########################################
+    
+    # prefix_of_replaced_field= lambda t: 'task01_' if ('re_' + t) in cfg['input_files'] else 'task10_'
+    # for t in gen_traverse_tasks(cfg['input_files']['task_first'], prefix_of_replaced_field):
+
+    # Expand special fields in cfg['output_files']['header']
+    h_expanded= []
+    for t in cfg['output_files']['header']:
+        if not t.startswith('<') or t=='<File>': # need expand
+            h_expanded.append(t)
+            continue
+        re_items= cfg['input_files']['re_'+t[1:-1]].groupindex
+        re_named_fields= [k for k,v in sorted(re_items.items(), key=itemgetter(1))]
+        h_expanded.extend(re_named_fields)
+    cfg['output_files']['header']= h_expanded
+    
+    
+    # add fixed configuration (have no access to change by user)
     def is64Windows():
         return 'PROGRAMFILES(X86)' in os_environ
     path_xpdf_pdftotext = os_path.join(
