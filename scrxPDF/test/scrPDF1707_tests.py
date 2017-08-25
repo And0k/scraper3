@@ -44,5 +44,13 @@ class unitsTest(unittest.TestCase):
                 break # 1 cycle only
 
 
+    """
+    go to next task
+    If     b_try_next_if_ok
+    If not b_try_next_if_ok and no data parsed
+    
+    """
+
+
 if __name__ == '__main__':  #
     unittest.main() #warnings='ignore'
