@@ -280,6 +280,7 @@ def proc_data(pdfF, csv_dict_writer, fn=None, *args):
 
 
 def parse_cfg():
+    global cfg
     import configargparse
 
     # p = configargparse.get_argument_parser(
@@ -305,8 +306,8 @@ def parse_cfg():
     # custom postprocessing based of args names in ini2dict
     p_input_files = p.add_argument_group('input_files', 'Parameters of input files')
     p_input_files.add_argument(
-        '--path', nargs='?', default='.',
-        help='Path to pdf file or dir with pdf files to parse. Use patterns in Unix shell style')
+        '--path', default='.', #nargs=?,
+        help='path to pdf file or dir with pdf files to parse. Use patterns in Unix shell style')
     p_input_files.add_argument(
         '--b_search_in_subdirs', default='True', help='search in subdirectories')
 
@@ -322,11 +323,12 @@ def parse_cfg():
         '--tasks_list',  # nargs='+' for list of lists
         default='County_Quad_Pool, Buyer_Lease_Type_Active, , Permit_Well_header, '
                 'Permit_Well, Permit_Well_end, Product_by_month_header, Product_by_month',
-        help='List of tasks (rows to parse). Each task shoud have regular expression "re_<Name>" (see below). Empty items is for skip lines without warning (besides of empty lines which skipped silently)')
+        help='list of tasks (rows to parse). Each task must have regular expression "re_<Name>" (see below). Empty items is for skip lines without warning (besides of empty lines which skipped silently)')
     p_input_files.add_argument(
         '--tasks_branch_from_to_list',
         default='Permit_Well, Permit_Well, Product_by_month, Product_by_month',
-        help='''Here odd items are tasks to branch "from" and even items are to branch "to":
+        help='''list where odd items are tasks to branch "from" and even items
+are tasks to branch "to":
 [from taskX1, to taskY1, from taskX2, to taskY2, ...]. If task is listed in
 TaskX then it will be repeated while it will not pass. Then task will be
 switched to next adjasent taskY and continues to change with tasks_list order.
@@ -347,7 +349,7 @@ taskN repeats.
     p_input_files.add_argument(
         '--re_Permit_Well_header',
         default=" *(?P<nodata>Permit +#? +Well +Name)",
-        help="It checks but not saves <nodata> fields")
+        help="it checks but not saves <nodata> fields")
     p_input_files.add_argument(
         '--re_Permit_Well',
         default="(?! *Edit)((?P<Permit>[^ ]{1,10})| {8})((?: +(?P<Well>.*))|$)"
@@ -361,8 +363,8 @@ taskN repeats.
         default="(?P<nodata> *Year +Jan +Feb +Mar +Apr +May +Jun +Jul +Aug +Sep +Oct +Nov +Dec +Totals)")
     p_input_files.add_argument(
         '--re_Product_by_month',
-        default= "[^\d]*(?=[\d.#" 
-        " ]{,15})(?P<Year>[\d]{2,4}|Totals)(?:[# ]{,9})(?: {1,17})"
+        default= \
+          "[^\dT]*(?P<Year>[\d]{2,4}|Totals)(?:[# ]{,9})(?: {1,17})"
         "(?=[\d.# ]{,15})(?P<Jan>[\d.]{,9})(?:[# ]{,9})(?: {1,17})"
         "(?=[\d.# ]{,15})(?P<Feb>[\d.]{,9})(?:[# ]{,9})(?: {1,17})"
         "(?=[\d.# ]{,15})(?P<Mar>[\d.]{,9})(?:[# ]{,9})(?: {1,17})"
@@ -380,41 +382,39 @@ taskN repeats.
 
     p_output_files = p.add_argument_group('output_files', 'Parameters of output files')
     p_output_files.add_argument(
-        '--out_path', '-o', nargs='?', type=str, default='./<filename>.csv',
-        help='''Output dir/path.
-Join data from all found input files to single output if extension provided. If
-"<filename>" found it will be sabstituted with [1st file name]+, "<dir>" -
-with last directory name.
-Else, if no extension provided then ".csv" will be used, "<filename>" strings
-will be sabstituted with correspondng input file names.
-''')  # .csv
+        '--out_path', '-o', type=str, default='./<File_in>.csv',
+        help='''output dir/path.
+Join data from all found input files to single output. PATH can contain special string:
+ "<File_in>": to sabstitute with [1st file name]+.
+If no extension provided then ".csv" will be used.
+''')  # .csv "<dir>":      last directory name.
     p_output_files.add_argument(
         '--header_list', default='Buyer,Pool,Permit,Well,Quad,County,Type,Lease,'
                                  '<Product_by_month>,<File>',  # Total,Active
         help='''
-Columns order. List of comma separated
-1) named regex fields i.e. (?P<...>) elements of [input_files].re_* lists or/and 
-2) from this list names without "re_" enclosed in angle brackets: elements from 
+columns order. List of comma separated element which are
+1) named regex fields i.e. Name from (?P<Name>) elements of [input_files].re_* lists or/and 
+2) this lists names without "re_" enclosed in angle brackets: all named fields from 
 them will be added automatically.'
-3) <File> field: to include name of parsed file
+3) <File> field: to include path/name of parsed file
 ''')
     p_output_files.add_argument(
         '--min_size_to_overwrite', default=0, metavar='BYTES',
-        help= 'delete small output files: with the dsizes less given value [bytes]')
+        help= 'overwrite small output files: with the sizes less given value [bytes]')
     p_program = p.add_argument_group('program', 'Program behaviour')
     p_program.add_argument(
-        '--verbose', '-v', nargs=1, type=str, default=['INFO'],
+        '--verbose', '-v', type=str, default='INFO', #nargs=1,
         choices=['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'],
-        help='Verbosity of messages in log file')
+        help='verbosity of messages in log file')
     p_program.add_argument(
         '--log', type=str, default='&<prog>.log', metavar='PATH',
-        help='log dir/path.')
+        help='dir/path of log relative to output path')
     p_program.add_argument(
         '--b_ask_to_start', type=str, default='True',
         help='stops and show found source files')
     try:
         args = vars(p.parse_args())
-        args['verbose'] = args['verbose'][0]
+        #args['verbose'] = args['verbose'][0]
         # groupsection by
         cfg_strings = {}
         # cfg= {section: {} for section in ['input_files', 'output_files', 'program']}
@@ -422,16 +422,18 @@ them will be added automatically.'
             # skip argparse argument groups
             if gr.title.split(' ')[-1] == 'arguments':
                 continue
-            cfg_strings[gr.title] = {key: args[key] for key in args.keys() & [
-                a.dest for a in gr._group_actions]}
+            cfg_strings[gr.title] = {key: args[key].replace('<prog>', p.prog) if \
+                isinstance(args[key], str) else args[key] for key in \
+                args.keys() & [a.dest for a in gr._group_actions]}
 
         cfg = ini2dict(cfg_strings)
-    except IOError as e:
+    except Exception as e: #IOError
         print('Configuration ({}) error:'.format(p._default_config_files), end=' ')
         print('\n==> '.join([s for s in e.args if isinstance(s, str)]))  # e.message
         raise (e)
-
-    return (cfg)
+    except SystemExit as e:
+        pass
+    return(cfg)
 
 
 def cycle_files(fun_on_files=None):
@@ -449,7 +451,12 @@ def cycle_files(fun_on_files=None):
     except Ex_nothing_done as e:
         print(e.message)
         exit(0)
-    cfg['output_files']['path'] = cfg['output_files']['out_path']  # next function requires 'path'
+
+    cfg['output_files']['path'], cfg['output_files']['ext'] = os_path.splitext(
+        cfg['output_files']['out_path'])  # set_cfg_path_filemask requires 'path'
+    if not cfg['output_files']['ext']:    # set_cfg_path_filemask requires some ext in path or in 'ext'
+        cfg['output_files']['ext']= '.csv'
+    cfg['output_files']['path'] = cfg['output_files']['out_path']
     set_cfg_path_filemask(cfg['output_files'])
 
     namesFE0 = os_path.basename(cfg['input_files']['namesFull'][0])
@@ -457,7 +464,7 @@ def cycle_files(fun_on_files=None):
     # Check target exists-
     file_out, writeMode, msg_name_output_file = name_output_file(
         cfg['output_files']['path'], cfg['output_files']['filemask'].replace(
-            '<filename>', cfg['output_files']['base'] + '+'), None,
+            '<File_in>', cfg['output_files']['base'] + '+'), None,
         bInteract, cfg['output_files']['min_size_to_overwrite'])
     with open(file_out, writeMode, newline='') as fp_out:
         csv_dict_writer = csv_DictWriter(
@@ -549,6 +556,8 @@ def main():
     global cfg, l
 
     cfg = parse_cfg()
+    if not cfg:
+        return
     cfg = correct_lowered_fields_of_cfg(cfg)
     cfg['input_files']['tasks_from'] = cfg['input_files']['tasks_branch_from_to'][::2]
     cfg['input_files']['tasks_to'] = cfg['input_files']['tasks_branch_from_to'][1::2]

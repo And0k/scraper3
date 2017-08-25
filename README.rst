@@ -13,39 +13,34 @@ Program converts pdf file line by line to text strings and checks them using
 regular expressions. Has ability to configurate regular expressions to some extent.
 Program has command line arguments that start with '--' (eg. --path) and can
 also be set in a config file (scrxPDF1707.ini)
-If an argument is specified in more than one place, then commandline values
+If an argument is specified in more than one place, then command line values
 override config file values which override defaults.
 
-For help run
+Main parameters:
+path: Path to pdf file or dir with pdf files to parse. Use patterns in Unix shell style.
+Can be specified in [input_files] section of configuration file.
+
+tasks_list: Regular expressions names list. This is list of rows to parse.
+Each task must have regular expression "re_<Name>" (see below).
+Empty items is for skip lines without warning (besides of empty lines which skipped silently
+Default is "County_Quad_Pool, Buyer_Lease_Type_Active, , Permit_Well_header, 
+Permit_Well, Permit_Well_end, Product_by_month_header, Product_by_month"
+
+"re_<Name>": Regular expressions for each task where <Name> is name of task listed in tasks_list
+
+out_path: Path to csv output. It can be specified in [output_files] section of configuration file.
+Here can be used <File_in> special string to substitute with "1st file name"+.
+If no extension provided then ".csv" will be used. If file with generated name exists, then it
+ _(N) will be appended, where N is changed= 1,2,3... to generate new name.
+
+log: dir/path of log relative to output path. It can be specified in [program] section of configuration file.
+
+<prog> text will be replaced with program name.
+
+For more help and to list default parameters run
 scrxPDF1707.exe -h
 
-[input_files] section of configurtion file can has settings:
-path - Path to pdf file or dir with pdf files to parse. Use patterns in Unix shell style
 
-Regular expressions names list:
-County_Quad_Pool, Buyer_Lease_Type_Active, , Permit_Well_header, Permit_Well, , Product_by_month_header, Product_by_month
 
-Program  using configuration file
 
-2. Parses this page and all pages with header "Company Well Name..." obtaining data
-according to table logic structure and my empiric format restrictions:
-Company, Pool, Well, Location, County, File, Oil, Wtr, Days, Runs, Gas, Gas_Sold, Total
-3. Adds columns:
-Oil_SI - gets value of Oil if it is not digit (in this case Oil value will set to 0)
-Is_Total - specifies which data sum writes to column Total
-4. Removes extra spaces in names and duplicate data in adjacent rows
-3. Writes *.csv to specified dir. If file with generated name exists, then _(#) will be appended.
-Logs to console and file "&scrxpdf.log"
----------------------------------------------------------------------------
-
-Usage:
-
-Put *.pdf reports to .\pdf directory
-start:
-scrxPDF.bat          - to write into separate <name of pdf>.csv files, or
-scrxPDF all_to_1.bat - to write into one <name of first pdf>+.csv file
-*.csv files and log will be in .\csv directory
-
-For help of available and default options run in .\bin directory:
-scrxPDF -h
 
