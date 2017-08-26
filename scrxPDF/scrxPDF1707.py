@@ -291,8 +291,7 @@ def parse_cfg():
                     "---------------------------------\n",
         formatter_class=configargparse.ArgumentDefaultsRawHelpFormatter,
         # formatter_class= configargparse.ArgumentDefaultsHelpFormatter,
-        epilog='If use special characters in path arguments then insert them in quotes',
-        version='scrxPDF1707 version ' + version + ' - (c) 2017 Andrey Korzh <ao.korzh@gmail.com>.\n\nProgram uses the GPL Xpdf software copyrighted 1996-2014 Glyph & Cog, LLC.\n(Email: derekn@foolabs.com, WWW: http://www.foolabs.com/xpdf/)',
+        epilog='',
         args_for_writing_out_config_file=["-w", "--write-out-config-file"],
         write_out_config_file_arg_help_message=
         "takes the current command line args and writes them out to a config file "
@@ -300,7 +299,8 @@ def parse_cfg():
         "use this file you need to add sections manually. Sections are listed here "
         "in help message: [input_files], [output_files] ..."
     )
-
+    p.add_argument('--version', '-v', action='version', version=
+    'scrxPDF1707 version ' + version + ' - (c) 2017 Andrey Korzh <ao.korzh@gmail.com>.\n\nProgram uses the GPL Xpdf software copyrighted 1996-2014 Glyph & Cog, LLC.\n(Email: derekn@foolabs.com, WWW: http://www.foolabs.com/xpdf/)')
     # Fill configuration sections
     # All argumets of type str (default for add_argument...), because of
     # custom postprocessing based of args names in ini2dict
@@ -403,7 +403,7 @@ them will be added automatically.'
         help= 'overwrite small output files: with the sizes less given value [bytes]')
     p_program = p.add_argument_group('program', 'Program behaviour')
     p_program.add_argument(
-        '--verbose', '-v', type=str, default='INFO', #nargs=1,
+        '--verbose', '-V', type=str, default='INFO', #nargs=1,
         choices=['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'],
         help='verbosity of messages in log file')
     p_program.add_argument(
@@ -561,6 +561,7 @@ def main():
     cfg = correct_lowered_fields_of_cfg(cfg)
     cfg['input_files']['tasks_from'] = cfg['input_files']['tasks_branch_from_to'][::2]
     cfg['input_files']['tasks_to'] = cfg['input_files']['tasks_branch_from_to'][1::2]
+    del cfg['input_files']['tasks_branch_from_to']
 
     # More configuration
     ###########################################

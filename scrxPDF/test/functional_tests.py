@@ -23,6 +23,9 @@ class NewVisitorTest(unittest.TestCase):
         # this dir must include pdftotext.exe:
 
         argv[0] = os_path.join(os_path.dirname(os_path.dirname(__file__)), 'scrxPDF')
+        argv[1:] = ['-v']
+        scrxPDF()
+
         argv[1:] = ['-h']
         scrxPDF()
 

@@ -13,7 +13,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 OSI_license = 'GNU General Public License v3 or later (GPLv3+)'
 setup(
     name='scrxPDF',
-    version='0.0.1',
+    version='0.1.2',
 
     description='Extracts data from Monthly Production Reports *.pdf to *.csv file(s)',
     long_description=long_description,
